@@ -714,7 +714,7 @@ async def talk_playback(
             except ApiError as err:
                 last_err = err
                 rsp = getattr(err, "rspCode", None)
-                if rsp in (400, 422):
+                if rsp in (400, 421, 422):
                     # Many firmwares require stopping an existing talk session first.
                     await _stop_talk_best_effort(bc_util.EncType.AES)
                     await _stop_talk_best_effort(bc_util.EncType.BC)
@@ -731,7 +731,7 @@ async def talk_playback(
             )
             raise last_err
     except ApiError as err:
-        if getattr(err, "rspCode", None) == 422:
+        if getattr(err, "rspCode", None) in (421, 422):
             # Stop talk and retry. Use the same AES->BC fallback logic.
             await _send_with_fallback(11)
             last_err = None
@@ -743,7 +743,7 @@ async def talk_playback(
                 except ApiError as err2:
                     last_err = err2
                     rsp = getattr(err2, "rspCode", None)
-                    if rsp in (400, 422):
+                    if rsp in (400, 421, 422):
                         await _stop_talk_best_effort(bc_util.EncType.AES)
                         await _stop_talk_best_effort(bc_util.EncType.BC)
                         continue
