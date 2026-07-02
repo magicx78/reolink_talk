@@ -41,15 +41,10 @@ class ReolinkTalkOptionsFlowHandler(config_entries.OptionsFlow):
             {
                 vol.Optional(
                     CONF_REOLINK_ENTRY_IDS,
-                    default=self._config_entry.options.get(
-                        CONF_REOLINK_ENTRY_IDS, list(entry_map.keys())
-                    ),
+                    default=self._config_entry.options.get(CONF_REOLINK_ENTRY_IDS, list(entry_map.keys())),
                 ): selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=[
-                            selector.SelectOptionDict(value=eid, label=title)
-                            for eid, title in entry_map.items()
-                        ],
+                        options=[selector.SelectOptionDict(value=eid, label=title) for eid, title in entry_map.items()],
                         multiple=True,
                         mode=selector.SelectSelectorMode.DROPDOWN,
                     )
@@ -62,4 +57,3 @@ class ReolinkTalkOptionsFlowHandler(config_entries.OptionsFlow):
         )
 
         return self.async_show_form(step_id="init", data_schema=schema)
-

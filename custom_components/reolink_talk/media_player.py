@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from homeassistant.components.media_player import MediaPlayerEntity
 from homeassistant.components.media_player.const import (
     MediaPlayerEntityFeature,
-    MediaType,
     MediaPlayerState,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -160,8 +159,6 @@ class ReolinkTalkPlayer(MediaPlayerEntity):
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs) -> None:
         # Resolve HA media-source URLs if needed.
-        from homeassistant.components.media_player import async_process_play_media_url
-        from homeassistant.components.media_source import async_resolve_media
 
         async with self._lock:
             try:

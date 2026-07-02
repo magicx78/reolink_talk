@@ -37,6 +37,7 @@ def _first_text(root: ET.Element, path: str) -> str | None:
         return None
     return el.text.strip()
 
+
 def _all_texts(root: ET.Element, path: str) -> list[str]:
     out: list[str] = []
     for el in root.findall(path):
@@ -191,7 +192,7 @@ def bcmedia_adpcm_packet(block: bytes) -> bytes:
         raise ValueError("ADPCM block too small")
     payload_len = len(block) + 4  # + magic u16 + blocksize u16
     # Neolink format: "block size without header, halved" (DVI-4 payload bytes / 2).
-    block_size = ((len(block) - 4) // 2)
+    block_size = (len(block) - 4) // 2
     header = struct.pack(
         "<IHHHH",
         0x62773130,  # MAGIC_HEADER_BCMEDIA_ADPCM
@@ -204,7 +205,9 @@ def bcmedia_adpcm_packet(block: bytes) -> bytes:
     return header + block + (b"\x00" * pad_len)
 
 
-def talk_binary_payload(adpcm_bytes: bytes, full_block_size: int, blocks_per_payload: int = 4) -> list[tuple[bytes, int]]:
+def talk_binary_payload(
+    adpcm_bytes: bytes, full_block_size: int, blocks_per_payload: int = 4
+) -> list[tuple[bytes, int]]:
     # Returns list of (binary_payload, blocks_in_payload).
     out: list[tuple[bytes, int]] = []
     blocks = [adpcm_bytes[i : i + full_block_size] for i in range(0, len(adpcm_bytes), full_block_size)]
