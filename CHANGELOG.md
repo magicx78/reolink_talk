@@ -3,6 +3,25 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.1] - 2026-07-02
+
+### Fixed
+
+- **`'Baichuan' object has no attribute '_mutex'`** when sending talk audio
+  on current Home Assistant. `reolink_aio` 0.21 moved the TCP/UDP plumbing
+  from the `Baichuan` object (`_mutex`/`_transport`/`_protocol`) into a
+  dedicated connection object; `send_talk_binary()` now uses
+  `bc._connection.send()` (which writes under the connection's lock and
+  awaits the camera ack) and keeps the old transport path as a fallback for
+  older `reolink_aio` versions. Found during a real TTS hardware test.
+
+### Added
+
+- Integration-style regression test that drives the **real**
+  `reolink_aio.Baichuan` class (only the network layer replaced), so future
+  changes to reolink_aio's private attribute layout fail in CI instead of on
+  the camera.
+
 ## [0.2.0] - 2026-07-02
 
 First release of the maintained fork ([magicx78/reolink_talk](https://github.com/magicx78/reolink_talk)).
