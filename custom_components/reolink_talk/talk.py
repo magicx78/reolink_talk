@@ -13,6 +13,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import get_url
 
+from .util import ensure_bytes
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -590,9 +592,17 @@ async def send_talk_binary(
         enc_type = bc_util.EncType.AES
 
     if enc_type == bc_util.EncType.BC:
+        # encrypt_baichuan accepts str and returns bytes.
         enc_ext = bc_util.encrypt_baichuan(ext, ch_id)  # enc_offset = ch_id
     else:
-        enc_ext = bc._aes_encrypt(ext)
+        # reolink_aio Baichuan._aes_encrypt(body: bytes) hands its argument
+        # straight to Cryptodome C code, which rejects str (upstream issue #6).
+        enc_ext = bc._aes_encrypt(ensure_bytes(ext, name="extension XML"))
+
+    # Everything concatenated into the wire packet must be bytes, and the
+    # header length fields must count on-wire bytes, not str characters.
+    enc_ext = ensure_bytes(enc_ext, name="encrypted extension")
+    binary_payload = ensure_bytes(binary_payload, name="binary_payload")
     payload_offset = len(enc_ext)
     mess_len = payload_offset + len(binary_payload)
 
