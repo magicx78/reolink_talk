@@ -1,0 +1,23 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Reolink Talk",
+        "description": "Richtet Zwei-Wege-Audio-Media-Player für deine Reolink-Kameras ein. Verwendet die Zugangsdaten der offiziellen Reolink-Integration."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Bereits konfiguriert. Nur eine Instanz ist möglich."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "reolink_entry_ids": "Reolink-Geräte",
+          "channel": "Kamera-Kanal"
+        }
+      }
+    }
+  }
+}

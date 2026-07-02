@@ -13,6 +13,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import get_url
 
+from .util import ensure_bytes
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -36,6 +38,7 @@ def _first_text(root: ET.Element, path: str) -> str | None:
     if el is None or el.text is None:
         return None
     return el.text.strip()
+
 
 def _all_texts(root: ET.Element, path: str) -> list[str]:
     out: list[str] = []
@@ -191,7 +194,7 @@ def bcmedia_adpcm_packet(block: bytes) -> bytes:
         raise ValueError("ADPCM block too small")
     payload_len = len(block) + 4  # + magic u16 + blocksize u16
     # Neolink format: "block size without header, halved" (DVI-4 payload bytes / 2).
-    block_size = ((len(block) - 4) // 2)
+    block_size = (len(block) - 4) // 2
     header = struct.pack(
         "<IHHHH",
         0x62773130,  # MAGIC_HEADER_BCMEDIA_ADPCM
@@ -204,7 +207,9 @@ def bcmedia_adpcm_packet(block: bytes) -> bytes:
     return header + block + (b"\x00" * pad_len)
 
 
-def talk_binary_payload(adpcm_bytes: bytes, full_block_size: int, blocks_per_payload: int = 4) -> list[tuple[bytes, int]]:
+def talk_binary_payload(
+    adpcm_bytes: bytes, full_block_size: int, blocks_per_payload: int = 4
+) -> list[tuple[bytes, int]]:
     # Returns list of (binary_payload, blocks_in_payload).
     out: list[tuple[bytes, int]] = []
     blocks = [adpcm_bytes[i : i + full_block_size] for i in range(0, len(adpcm_bytes), full_block_size)]
@@ -586,10 +591,27 @@ async def send_talk_binary(
     if enc_type is None:
         enc_type = bc_util.EncType.AES
 
+    if _LOGGER.isEnabledFor(logging.DEBUG):
+        _LOGGER.debug(
+            "Pre-encrypt types: ext=%s payload=%s (%d bytes), enc=%s",
+            type(ext).__name__,
+            type(binary_payload).__name__,
+            len(binary_payload),
+            getattr(enc_type, "value", str(enc_type)),
+        )
+
     if enc_type == bc_util.EncType.BC:
+        # encrypt_baichuan accepts str and returns bytes.
         enc_ext = bc_util.encrypt_baichuan(ext, ch_id)  # enc_offset = ch_id
     else:
-        enc_ext = bc._aes_encrypt(ext)
+        # reolink_aio Baichuan._aes_encrypt(body: bytes) hands its argument
+        # straight to Cryptodome C code, which rejects str (upstream issue #6).
+        enc_ext = bc._aes_encrypt(ensure_bytes(ext, name="extension XML"))
+
+    # Everything concatenated into the wire packet must be bytes, and the
+    # header length fields must count on-wire bytes, not str characters.
+    enc_ext = ensure_bytes(enc_ext, name="encrypted extension")
+    binary_payload = ensure_bytes(binary_payload, name="binary_payload")
     payload_offset = len(enc_ext)
     mess_len = payload_offset + len(binary_payload)
 
@@ -692,7 +714,7 @@ async def talk_playback(
             except ApiError as err:
                 last_err = err
                 rsp = getattr(err, "rspCode", None)
-                if rsp in (400, 422):
+                if rsp in (400, 421, 422):
                     # Many firmwares require stopping an existing talk session first.
                     await _stop_talk_best_effort(bc_util.EncType.AES)
                     await _stop_talk_best_effort(bc_util.EncType.BC)
@@ -709,7 +731,7 @@ async def talk_playback(
             )
             raise last_err
     except ApiError as err:
-        if getattr(err, "rspCode", None) == 422:
+        if getattr(err, "rspCode", None) in (421, 422):
             # Stop talk and retry. Use the same AES->BC fallback logic.
             await _send_with_fallback(11)
             last_err = None
@@ -721,7 +743,7 @@ async def talk_playback(
                 except ApiError as err2:
                     last_err = err2
                     rsp = getattr(err2, "rspCode", None)
-                    if rsp in (400, 422):
+                    if rsp in (400, 421, 422):
                         await _stop_talk_best_effort(bc_util.EncType.AES)
                         await _stop_talk_best_effort(bc_util.EncType.BC)
                         continue
@@ -744,6 +766,13 @@ async def talk_playback(
     # the most reliable "bytes per ADPCM block" value for chunking and pacing.
     full_block_size = int(block_align or ability.length_per_encoder)
     payloads = talk_binary_payload(adpcm_bytes, full_block_size, blocks_per_payload=4)
+    _LOGGER.debug(
+        "Talk configured: enc=%s, sending %d payloads (%d ADPCM bytes, block=%d)",
+        getattr(enc_used, "value", str(enc_used)),
+        len(payloads),
+        len(adpcm_bytes),
+        full_block_size,
+    )
 
     try:
         for payload, blocks_in_payload in payloads:

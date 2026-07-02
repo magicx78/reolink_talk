@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from homeassistant.components.media_player import MediaPlayerEntity
 from homeassistant.components.media_player.const import (
     MediaPlayerEntityFeature,
-    MediaType,
     MediaPlayerState,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -160,8 +159,6 @@ class ReolinkTalkPlayer(MediaPlayerEntity):
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs) -> None:
         # Resolve HA media-source URLs if needed.
-        from homeassistant.components.media_player import async_process_play_media_url
-        from homeassistant.components.media_source import async_resolve_media
 
         async with self._lock:
             try:
@@ -241,6 +238,9 @@ class ReolinkTalkPlayer(MediaPlayerEntity):
         from homeassistant.helpers.aiohttp_client import async_get_clientsession
         from reolink_aio.api import Host
 
+        # Size only — media URLs can embed auth tokens, never log them.
+        _LOGGER.debug("Media resolved: %d bytes", len(media_bytes))
+
         # 1) Connect and fetch TalkAbility to determine ADPCM parameters
         host = Host(
             host=self._target.host,
@@ -271,7 +271,18 @@ class ReolinkTalkPlayer(MediaPlayerEntity):
                 sample_rate=ability.sample_rate,
                 volume=float(self._attr_volume_level or 1.0),
             )
+            _LOGGER.debug(
+                "ffmpeg -> PCM s16le ok: %d bytes (sample_rate=%d)",
+                len(pcm),
+                ability.sample_rate,
+            )
             adpcm_bytes = ima_adpcm_encode_dvi_blocks(pcm, full_block_size=full_block_size)
+            _LOGGER.debug(
+                "ADPCM encode ok: %d bytes, full_block_size=%d, %d blocks",
+                len(adpcm_bytes),
+                full_block_size,
+                len(adpcm_bytes) // full_block_size if full_block_size else 0,
+            )
 
             # 3) Send over Baichuan talk (cmd 201/202/11)
             await talk_playback(bc, self._target.channel, adpcm_bytes, ability, block_align=full_block_size)
