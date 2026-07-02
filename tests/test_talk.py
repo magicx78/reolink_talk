@@ -92,6 +92,75 @@ async def test_send_talk_binary_logs_in_when_needed(bc):
     assert bc.login_calls == 1
 
 
+async def test_send_talk_binary_modern_connection_layer(bc_modern):
+    """Regression: reolink_aio >= 0.21 has no _mutex/_transport on Baichuan.
+
+    The plumbing moved into bc._connection; send_talk_binary must use its
+    send() instead of the old attributes ('Baichuan' object has no attribute
+    '_mutex' on current Home Assistant otherwise).
+    """
+    payload = b"\xaa" * 32
+    await send_talk_binary(bc_modern, 0, payload, enc_type=bc_util.EncType.AES)
+
+    assert len(bc_modern._connection.sent) == 1
+    data, cmd_id, full_mess_id, channel = bc_modern._connection.sent[0]
+    assert cmd_id == 202
+    assert channel == 0
+    # full_mess_id = ch_id byte + 3 mess_id bytes, little-endian
+    assert full_mess_id == int.from_bytes(bytes([1]) + (1).to_bytes(3, "little"), "little")
+    assert isinstance(bc_modern.aes_calls[0], bytes)
+    assert data.endswith(payload)
+
+
+async def test_send_talk_binary_same_packet_on_both_layouts(bc, bc_modern):
+    """Old-layout and new-layout Baichuan must produce identical wire bytes."""
+    payload = b"\x42" * 24
+    await send_talk_binary(bc, 3, payload, enc_type=bc_util.EncType.AES)
+    await send_talk_binary(bc_modern, 3, payload, enc_type=bc_util.EncType.AES)
+
+    legacy_packet = bc._transport.written[0]
+    modern_packet = bc_modern._connection.sent[0][0]
+    assert legacy_packet == modern_packet
+
+
+async def test_send_talk_binary_against_real_baichuan_class():
+    """Drive send_talk_binary through the REAL reolink_aio Baichuan class.
+
+    Only the network layer is replaced. Catches drift in reolink_aio's
+    private attribute layout (like the 0.21 connection refactor) that pure
+    fakes cannot see.
+    """
+    from reolink_aio.baichuan.baichuan import Baichuan
+
+    class RecordingConnection:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, data, cmd_id, full_mess_id, channel=None, log_mess=""):
+            self.sent.append((data, cmd_id, full_mess_id, channel))
+            return (b"", 0, b"")
+
+    bc = Baichuan("127.0.0.1", "user", "pass", None)
+    bc._aes_key = b"0123456789abcdef"  # 128-bit key for the real _aes_encrypt
+    bc._logged_in = True
+    conn = RecordingConnection()
+    bc._connection = conn
+
+    async def _no_connect():
+        return None
+
+    bc._connect_if_needed = _no_connect
+
+    payload = b"\x00" * 16
+    await send_talk_binary(bc, 0, payload, enc_type=bc_util.EncType.AES)
+
+    assert len(conn.sent) == 1
+    data, cmd_id, _full_mess_id, channel = conn.sent[0]
+    assert cmd_id == 202
+    assert channel == 0
+    assert data.endswith(payload)
+
+
 def test_talk_binary_payload_grouping():
     """AES payload prep: 9 blocks are grouped [4, 4, 1], all bytes."""
     full_block_size = 8
