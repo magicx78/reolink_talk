@@ -591,6 +591,15 @@ async def send_talk_binary(
     if enc_type is None:
         enc_type = bc_util.EncType.AES
 
+    if _LOGGER.isEnabledFor(logging.DEBUG):
+        _LOGGER.debug(
+            "Pre-encrypt types: ext=%s payload=%s (%d bytes), enc=%s",
+            type(ext).__name__,
+            type(binary_payload).__name__,
+            len(binary_payload),
+            getattr(enc_type, "value", str(enc_type)),
+        )
+
     if enc_type == bc_util.EncType.BC:
         # encrypt_baichuan accepts str and returns bytes.
         enc_ext = bc_util.encrypt_baichuan(ext, ch_id)  # enc_offset = ch_id
@@ -757,6 +766,13 @@ async def talk_playback(
     # the most reliable "bytes per ADPCM block" value for chunking and pacing.
     full_block_size = int(block_align or ability.length_per_encoder)
     payloads = talk_binary_payload(adpcm_bytes, full_block_size, blocks_per_payload=4)
+    _LOGGER.debug(
+        "Talk configured: enc=%s, sending %d payloads (%d ADPCM bytes, block=%d)",
+        getattr(enc_used, "value", str(enc_used)),
+        len(payloads),
+        len(adpcm_bytes),
+        full_block_size,
+    )
 
     try:
         for payload, blocks_in_payload in payloads:
