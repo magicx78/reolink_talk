@@ -114,6 +114,53 @@ class FakeBaichuan:
         self._logged_in = True
 
 
+class FakeConnection:
+    """Mimics reolink_aio >= 0.21 BaichuanTcpConnection/BaichuanUdpConnection."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[bytes, int, int, int | None]] = []
+
+    async def send(self, data, cmd_id, full_mess_id, channel=None, log_mess=""):
+        assert isinstance(data, bytes)
+        self.sent.append((data, cmd_id, full_mess_id, channel))
+        return (b"", 0, b"")
+
+
+class FakeBaichuanModern:
+    """Mimics reolink_aio >= 0.21: the TCP/UDP plumbing lives in _connection.
+
+    Deliberately does NOT define _mutex/_transport/_protocol — exactly like
+    the real Baichuan class since 0.21 — so a regression back to the old
+    attribute layout fails with the same AttributeError seen on real HA.
+    """
+
+    def __init__(self) -> None:
+        self._logged_in = True
+        self._mess_id = 0
+        self._host = "127.0.0.1"
+        self._connection = FakeConnection()
+        self.aes_calls: list[object] = []
+        self.login_calls = 0
+
+    def _aes_encrypt(self, body):
+        self.aes_calls.append(body)
+        if not isinstance(body, bytes):
+            raise TypeError(f"Object type {type(body)} cannot be passed to C code")
+        return b"ENC:" + body
+
+    async def _connect_if_needed(self) -> None:
+        return None
+
+    async def login(self) -> None:
+        self.login_calls += 1
+        self._logged_in = True
+
+
 @pytest.fixture
 def bc() -> FakeBaichuan:
     return FakeBaichuan()
+
+
+@pytest.fixture
+def bc_modern() -> FakeBaichuanModern:
+    return FakeBaichuanModern()

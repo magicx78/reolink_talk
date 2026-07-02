@@ -643,6 +643,19 @@ async def send_talk_binary(
     # Wait for the camera ack like neolink does (it subscribes to MSG_ID_TALK and awaits recv).
     # Without this, some firmwares may silently drop packets under load.
     await bc._connect_if_needed()
+
+    full_mess_id = int.from_bytes(int(ch_id).to_bytes(1, "little") + int(bc._mess_id).to_bytes(3, "little"), "little")
+
+    # reolink_aio >= 0.21 moved the TCP/UDP plumbing into a connection object
+    # (Baichuan no longer has _mutex/_transport/_protocol). Its send() writes
+    # under its own lock and awaits the camera ack, which is exactly the
+    # behavior replicated manually below for older versions.
+    connection = getattr(bc, "_connection", None)
+    if connection is not None:
+        await connection.send(packet, cmd_id, full_mess_id, channel)
+        return
+
+    # Older reolink_aio exposed transport/protocol/mutex directly on Baichuan.
     proto = getattr(bc, "_protocol", None)
     loop = getattr(bc, "_loop", None)
     if proto is None or loop is None:
@@ -650,7 +663,6 @@ async def send_talk_binary(
             bc._transport.write(packet)
         return
 
-    full_mess_id = int.from_bytes(int(ch_id).to_bytes(1, "little") + int(bc._mess_id).to_bytes(3, "little"), "little")
     receive_future = loop.create_future()
     proto.receive_futures.setdefault(cmd_id, {})[full_mess_id] = receive_future
 
