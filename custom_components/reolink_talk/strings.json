@@ -1,0 +1,23 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Reolink Talk",
+        "description": "Set up two-way talk media players for your Reolink cameras. Uses the official Reolink integration for credentials."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Already configured. Only a single instance is possible."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "reolink_entry_ids": "Reolink devices",
+          "channel": "Camera channel"
+        }
+      }
+    }
+  }
+}
