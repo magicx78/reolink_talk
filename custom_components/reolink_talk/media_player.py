@@ -153,11 +153,12 @@ class ReolinkTalkPlayer(MediaPlayerEntity):
                 aiohttp_get_session_callback=lambda: async_get_clientsession(self.hass),
             )
             try:
-                await host.login()
                 try:
+                    await host.login()
                     await host.set_volume(self._target.channel, volume_speak=vol_0_100)
                 except (NotSupportedError, InvalidParameterError, ReolinkError):
                     # Do not fail the service call; software volume still applies.
+                    # This also covers a failed HTTP login (Baichuan-only cameras).
                     _LOGGER.debug(
                         "Camera does not support volume_speak control (%s); using software volume only",
                         self.entity_id,
