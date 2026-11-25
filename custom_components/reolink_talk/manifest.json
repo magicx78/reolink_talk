@@ -1,7 +1,7 @@
 {
   "domain": "reolink_talk",
   "name": "Reolink Talk (Two-Way Audio)",
-  "codeowners": ["@magicx78", "@joeblack2k", "@XHyperDEVX"],
+  "codeowners": ["@magicx78", "@joeblack2k"],
   "config_flow": true,
   "dependencies": ["reolink"],
   "documentation": "https://github.com/magicx78/reolink_talk",
