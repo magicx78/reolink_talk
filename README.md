@@ -99,6 +99,10 @@ data:
 
 ### Example: play a local file
 
+`local` is the Home Assistant media-directory ID in the URI below. Do **not**
+add a second `/local` unless that is an actual subdirectory of your media
+folder.
+
 ```yaml
 action: media_player.play_media
 target:

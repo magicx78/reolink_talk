@@ -639,47 +639,41 @@ async def send_talk_binary(
             payload_offset,
         )
 
-    # Wait for the camera ack like neolink does (it subscribes to MSG_ID_TALK and awaits recv).
-    # Without this, some firmwares may silently drop packets under load.
+    # Audio frames are a realtime stream, not request/response commands. Waiting
+    # for a cmd-202 acknowledgement adds one camera round-trip per packet (and
+    # some firmware never acknowledges it), which delayed short announcements
+    # by seconds. They are paced below, so write each frame without waiting.
     await bc._connect_if_needed()
 
-    full_mess_id = int.from_bytes(int(ch_id).to_bytes(1, "little") + int(bc._mess_id).to_bytes(3, "little"), "little")
-
-    # reolink_aio >= 0.21 moved the TCP/UDP plumbing into a connection object
-    # (Baichuan no longer has _mutex/_transport/_protocol). Its send() writes
-    # under its own lock and awaits the camera ack, which is exactly the
-    # behavior replicated manually below for older versions.
+    # reolink_aio >= 0.21 keeps the transport in a connection object. Its public
+    # send_without_wait() holds the connection write lock without installing a
+    # response future, so delayed/unavailable cmd-202 replies cannot stall audio.
     connection = getattr(bc, "_connection", None)
     if connection is not None:
-        await connection.send(packet, cmd_id, full_mess_id, channel)
+        send_without_wait = getattr(connection, "send_without_wait", None)
+        if callable(send_without_wait):
+            await send_without_wait(packet, cmd_id)
+            return
+
+        # Compatibility with an intermediate reolink_aio connection layout.
+        connection_mutex = getattr(connection, "_mutex", None)
+        connection_write = getattr(connection, "_write", None)
+        if connection_mutex is None or not callable(connection_write):
+            raise RuntimeError("Unsupported reolink_aio connection layout for talk audio")
+        full_mess_id = int.from_bytes(
+            int(ch_id).to_bytes(1, "little") + int(bc._mess_id).to_bytes(3, "little"), "little"
+        )
+        async with connection_mutex:
+            connection_write(packet, cmd_id, full_mess_id)
         return
 
-    # Older reolink_aio exposed transport/protocol/mutex directly on Baichuan.
-    proto = getattr(bc, "_protocol", None)
-    loop = getattr(bc, "_loop", None)
-    if proto is None or loop is None:
-        async with bc._mutex:
-            bc._transport.write(packet)
-        return
-
-    receive_future = loop.create_future()
-    proto.receive_futures.setdefault(cmd_id, {})[full_mess_id] = receive_future
-
-    try:
-        async with bc._mutex:
-            bc._transport.write(packet)
-        async with asyncio.timeout(5):
-            await receive_future
-    finally:
-        try:
-            if not receive_future.done():
-                receive_future.cancel()
-        except Exception:
-            pass
-        futs = proto.receive_futures.get(cmd_id, {})
-        futs.pop(full_mess_id, None)
-        if not futs and cmd_id in proto.receive_futures:
-            proto.receive_futures.pop(cmd_id, None)
+    # Older reolink_aio exposed the transport directly on Baichuan.
+    transport = getattr(bc, "_transport", None)
+    mutex = getattr(bc, "_mutex", None)
+    if transport is None or mutex is None:
+        raise RuntimeError("Unsupported reolink_aio Baichuan layout for talk audio")
+    async with mutex:
+        transport.write(packet)
 
 
 async def talk_playback(

@@ -3,6 +3,29 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.5]
+
+### Changed
+
+- `media_player.play_media` again completes only after the complete realtime
+  audio stream has played (or was explicitly stopped). The low-latency binary
+  frame writes and the pre-warmed Baichuan connection remain in place.
+
+## [0.3.4]
+
+### Fixed
+
+- **Standard local-media IDs work again.**
+  `media-source://media_source/local/doorbell.mp3` now correctly interprets
+  `local` as Home Assistant's media-directory ID; no duplicated `/local` is
+  required.
+- **Short announcements start without per-frame acknowledgement delays.**
+  Binary Baichuan talk packets (cmd 202) are now written through
+  `send_without_wait()` and paced locally instead of waiting for an often
+  delayed or absent camera response for every frame.
+- The talk session is pre-warmed after setup to avoid a Baichuan connection
+  and login round-trip before every announcement.
+
 ## [0.3.1] - 2026-09-06
 
 Compatibility pass for Home Assistant 2026.9.1 (Python 3.14, reolink-aio 0.21.15).

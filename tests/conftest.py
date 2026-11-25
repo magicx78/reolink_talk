@@ -119,11 +119,16 @@ class FakeConnection:
 
     def __init__(self) -> None:
         self.sent: list[tuple[bytes, int, int, int | None]] = []
+        self.sent_without_wait: list[tuple[bytes, int | None]] = []
 
     async def send(self, data, cmd_id, full_mess_id, channel=None, log_mess=""):
         assert isinstance(data, bytes)
         self.sent.append((data, cmd_id, full_mess_id, channel))
         return (b"", 0, b"")
+
+    async def send_without_wait(self, data, cmd_id=None, timeout=5):
+        assert isinstance(data, bytes)
+        self.sent_without_wait.append((data, cmd_id))
 
 
 class FakeBaichuanModern:

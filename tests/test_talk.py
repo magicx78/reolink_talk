@@ -108,22 +108,20 @@ async def test_send_talk_binary_logs_in_when_needed(bc):
     assert bc.login_calls == 1
 
 
-async def test_send_talk_binary_modern_connection_layer(bc_modern):
-    """Regression: reolink_aio >= 0.21 has no _mutex/_transport on Baichuan.
+async def test_send_talk_binary_modern_connection_layer_is_nonblocking(bc_modern):
+    """Current reolink_aio must write cmd 202 without awaiting an ACK.
 
-    The plumbing moved into bc._connection; send_talk_binary must use its
-    send() instead of the old attributes ('Baichuan' object has no attribute
-    '_mutex' on current Home Assistant otherwise).
+    Binary talk frames use the connection layer introduced by reolink_aio 0.21,
+    but must use its send_without_wait() API. Waiting on send() turns every
+    packet into a request/response round-trip and makes short chimes lag.
     """
     payload = b"\xaa" * 32
     await send_talk_binary(bc_modern, 0, payload, enc_type=bc_util.EncType.AES)
 
-    assert len(bc_modern._connection.sent) == 1
-    data, cmd_id, full_mess_id, channel = bc_modern._connection.sent[0]
+    assert bc_modern._connection.sent == []
+    assert len(bc_modern._connection.sent_without_wait) == 1
+    data, cmd_id = bc_modern._connection.sent_without_wait[0]
     assert cmd_id == 202
-    assert channel == 0
-    # full_mess_id = ch_id byte + 3 mess_id bytes, little-endian
-    assert full_mess_id == int.from_bytes(bytes([1]) + (1).to_bytes(3, "little"), "little")
     assert isinstance(bc_modern.aes_calls[0], bytes)
     assert data.endswith(payload)
 
@@ -135,7 +133,7 @@ async def test_send_talk_binary_same_packet_on_both_layouts(bc, bc_modern):
     await send_talk_binary(bc_modern, 3, payload, enc_type=bc_util.EncType.AES)
 
     legacy_packet = bc._transport.written[0]
-    modern_packet = bc_modern._connection.sent[0][0]
+    modern_packet = bc_modern._connection.sent_without_wait[0][0]
     assert legacy_packet == modern_packet
 
 
@@ -151,10 +149,14 @@ async def test_send_talk_binary_against_real_baichuan_class():
     class RecordingConnection:
         def __init__(self):
             self.sent = []
+            self.sent_without_wait = []
 
         async def send(self, data, cmd_id, full_mess_id, channel=None, log_mess=""):
             self.sent.append((data, cmd_id, full_mess_id, channel))
             return (b"", 0, b"")
+
+        async def send_without_wait(self, data, cmd_id=None, timeout=5):
+            self.sent_without_wait.append((data, cmd_id))
 
     bc = Baichuan("127.0.0.1", "user", "pass", None)
     bc._aes_key = b"0123456789abcdef"  # 128-bit key for the real _aes_encrypt
@@ -170,29 +172,28 @@ async def test_send_talk_binary_against_real_baichuan_class():
     payload = b"\x00" * 16
     await send_talk_binary(bc, 0, payload, enc_type=bc_util.EncType.AES)
 
-    assert len(conn.sent) == 1
-    data, cmd_id, _full_mess_id, channel = conn.sent[0]
+    assert conn.sent == []
+    assert len(conn.sent_without_wait) == 1
+    data, cmd_id = conn.sent_without_wait[0]
     assert cmd_id == 202
-    assert channel == 0
     assert data.endswith(payload)
 
 
 async def test_talk_playback_aborts_on_cancel(bc_modern):
     """media_stop/media_pause must cut a running announcement short."""
     cancel = asyncio.Event()
-    inner_send = bc_modern._connection.send
+    inner_send_without_wait = bc_modern._connection.send_without_wait
 
-    async def send_then_cancel(data, cmd_id, full_mess_id, channel=None, log_mess=""):
-        result = await inner_send(data, cmd_id, full_mess_id, channel, log_mess)
+    async def send_then_cancel(data, cmd_id=None, timeout=5):
+        await inner_send_without_wait(data, cmd_id, timeout)
         cancel.set()  # simulate the user hitting stop after the first frame
-        return result
 
-    bc_modern._connection.send = send_then_cancel
+    bc_modern._connection.send_without_wait = send_then_cancel
 
     adpcm = b"\x00" * (BLOCK * 24)  # 24 blocks -> 6 payloads
     await talk_playback(bc_modern, 0, adpcm, ABILITY, block_align=BLOCK, cancel=cancel)
 
-    assert len(bc_modern._connection.sent) == 1  # aborted after the first payload
+    assert len(bc_modern._connection.sent_without_wait) == 1  # aborted after the first payload
     # the talk session is still stopped cleanly (cmd 11)
     assert 11 in [cmd for cmd, *_ in bc_modern.sent_cmds]
 
@@ -201,7 +202,7 @@ async def test_talk_playback_streams_all_payloads_without_cancel(bc_modern):
     adpcm = b"\x00" * (BLOCK * 8)  # 8 blocks -> 2 payloads
     await talk_playback(bc_modern, 0, adpcm, ABILITY, block_align=BLOCK)
 
-    assert len(bc_modern._connection.sent) == 2
+    assert len(bc_modern._connection.sent_without_wait) == 2
     cmds = [cmd for cmd, *_ in bc_modern.sent_cmds]
     assert 201 in cmds  # TalkConfig
     assert 11 in cmds  # stop talk
@@ -214,7 +215,7 @@ async def test_talk_playback_cancel_set_upfront_sends_nothing(bc_modern):
 
     await talk_playback(bc_modern, 0, adpcm, ABILITY, block_align=BLOCK, cancel=cancel)
 
-    assert bc_modern._connection.sent == []
+    assert bc_modern._connection.sent_without_wait == []
     assert 11 in [cmd for cmd, *_ in bc_modern.sent_cmds]
 
 
